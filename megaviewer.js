@@ -1,5 +1,5 @@
 /**
- *  MegaViewer plugin for showtime version 0.11  by NP
+ *  MegaViewer plugin for showtime version 0.20  by NP
  *
  *  Copyright (C) 2011 NP
  * 
