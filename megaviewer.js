@@ -1,9 +1,16 @@
 /**
- *  MegaViewer plugin for showtime version 0.20  by NP
+ *  MegaViewer plugin for showtime version 0.21  by NP
  *
  *  Copyright (C) 2011 NP
  * 
  *  ChangeLog:
+ *  0.21
+ *  Fix for megaupload support
+ *  Fix button name in oneddl
+ *  Added Bookmark Support
+ *  Added Mega MKV
+ *  
+ *  0.20
  *  Fix http headers problem
  *  Added Support for manual inserted links
  *  Added Support for Megaupload Premium accounts
@@ -50,6 +57,8 @@
 
 
 var PREFIX = 'megaviewer:';
+var MEGAMKV_IMG = 'http://mega-mkv.com/wp-content/themes/Mega-mkv/logo.png';
+var MEGAMKV = 'http://mega-mkv.com/';
 var MEGARELEASE = "http://www.megarelease.net";
 var MEGARELEASE_IMG = "http://b.imagehost.org/0380/mrlogo1b.png";
 var ONEDDL_IMG = "http://userlogos.org/files/logos/Deva/oneddl_logo.png";
@@ -110,8 +119,8 @@ var tos = 'MegaViewer\n\n'+
 	var mu_login = plugin.createStore('mu_login', true);
 	
 	var bookmarks = plugin.createStore('bookmarks', true);
-	if(!bookmarks.movies)
-		bookmarks.movies = '';
+	if(!bookmarks.list)
+		bookmarks.list = "[]";
 
 //settings 
 	
@@ -160,6 +169,11 @@ function startPage(page){
 		      icon: ICEFILMS_IMG
 		      });
 	
+	page.appendItem( PREFIX + "megamkv:1", "directory", {
+		  title: "Mega MKV",
+		      icon: MEGAMKV_IMG
+		      });
+	
 	page.appendItem( PREFIX + "category:megarelease", "directory", {
 		  title: "MegaRelease",
 		      icon: MEGARELEASE_IMG
@@ -184,11 +198,12 @@ function startPage(page){
 		  title: "Insert Link",
 		      icon: INPUT_IMG
 		      });
-
-//	page.appendItem( PREFIX + "vvwtv", "directory", {
-//		  title: "Bookmarks",
-//		      icon: BOOKMARKS_IMG
-//		      });
+		      
+	if(bookmarks.list.length>5)
+		page.appendItem( PREFIX + "bookmarks", "directory", {
+			  title: "Bookmarks",
+			      icon: BOOKMARKS_IMG
+			      });
 		
 	page.type = "directory";
 	page.contents = "items";
@@ -292,6 +307,7 @@ plugin.addURI( PREFIX + "present:(.*):(.*)", function(page, imdb, url){
 			break;
 			
 		default:
+		showtime.trace('Default: ' + website);
 		break;
 	}	
 		
@@ -380,8 +396,38 @@ plugin.addURI( PREFIX + "present:(.*):(.*)", function(page, imdb, url){
 			title: "List Episodes"
 		});
 	}
+	
+	//bookmarks
+	if(!movie.Title)
+		movie.Title = 'ND';
+	var name = bookmark_title(movie.Title, url_org);		
+	if(!bookmarked(name)){
+		var bookmakrButton = page.appendAction("pageevent", "bookmark", true,{ title: "Bookmark" });
+	}
+	else{		
+		var bookmakrButton = page.appendAction("pageevent", "bookmark_remove", true,{ title: "Remove Bookmark" });
+	}
+			
 	page.loading = false;
 	page.type = "item";	
+
+	page.onEvent('bookmark', function(){				
+							if(!bookmarked(name)){
+								bookmark(url_org, imdb, name, movie.icon)
+								showtime.message('Bookmarked: '+ name, true, false);
+							}else
+								showtime.message('Already Bookmarked: '+ name, true, false);
+					});
+
+	page.onEvent('bookmark_remove', function(){ 
+							if(!bookmarked(name)){
+								showtime.message(name +' Not bookmarked ', true, false);
+							}else{
+								bookmark_remove(name);
+								showtime.message(name + ' bookmark removed' , true, false);
+							}
+					});
+
 });
 
 /*
@@ -392,8 +438,10 @@ plugin.addURI( PREFIX + "videos:(.*):(.*):(.*):(.*)", function(page, url, cookie
 	
 	if(url == 'input')
 		url = showtime.textDialog('Link: ', true, false).input.toString().replace('http://','');
+	showtime.trace('Video url: '+ url);
 	//icefilms
 	if(url.length<7 && cookie != 'ND'){
+		showtime.trace('ice: ' + url);
 		var m ='-' + randomFromTo(100,250);
 		var s = randomFromTo(5,250);
 		var rpost={
@@ -417,14 +465,27 @@ plugin.addURI( PREFIX + "videos:(.*):(.*):(.*):(.*)", function(page, url, cookie
 	
 		
 	switch(website){
+		
+		case 'mega-mkv':
+			var temp = showtime.httpGet('http://'+url).toString();
+			url = getValue(temp, 'www.megaupload.com','"','start','all');
+			if(!loggedIn){
+				var mu = login('The file you are trying to download is larger than 1GB');
+				if(mu != true){
+					page.error(mu);
+					return;
+				}
+			}			
+			break;
+		
 		case 'megaupload':
 			if(!loggedIn){
 				var temp_url = megauploadGetUrl(url);
 				if(temp_url.indexOf('megaupload.com') != -1){
 					url = temp_url;
-					showtime.trace('Sleep 45 Seg for url:' + url);
-					wait(45);
-					showtime.trace('END Sleep 45 Seg');
+					showtime.trace('Sleep 60 Seg for url:' + url);
+					wait(59);
+					showtime.trace('END Sleep 60 Seg');
 				}
 				if(temp_url == 'Premium'){
 					var mu = login('The file you are trying to download is larger than 1GB');
@@ -435,6 +496,7 @@ plugin.addURI( PREFIX + "videos:(.*):(.*):(.*):(.*)", function(page, url, cookie
 				}
 			}
 			break;
+			
 		case 'megavideo':
 			url = megavideoGetUrl(url);
 			break;
@@ -457,6 +519,7 @@ plugin.addURI( PREFIX + "videos:(.*):(.*):(.*):(.*)", function(page, url, cookie
 			break;
 
 		default:
+			showtime.trace('Default: ' + website);
 			break;
 	}
 		
@@ -484,7 +547,22 @@ plugin.addURI( PREFIX + "videos:(.*):(.*):(.*):(.*)", function(page, url, cookie
 	page.type = "video";
 });
 
-
+/*
+ * Bookmarks
+ */
+plugin.addURI( PREFIX + "bookmarks", function(page){
+	
+	page.type = "directory";
+	page.contents = "items";
+	page.metadata.logo = BOOKMARKS_IMG;
+	page.metadata.title = 'Bookmarks';
+	
+	var temp = eval( '('+ bookmarks.list +')');
+	for each (var item in temp)
+		page.appendItem(PREFIX +"present:" + item.imdb +":"+  item.url, "video", item); 
+	
+	page.loading = false; 
+});
 
 /*
  * WebSites
@@ -581,7 +659,6 @@ plugin.addURI( PREFIX + "icefilms:(.*)", function(page, category){
 			});		
 	}
 	
-	// major sections: TV Shows   MOvies   Music  Stand UP   Other
 	content = content_org;
 	content = content.slice(content.indexOf("<div class='menu indent'>"), content.indexOf("<a href=http://forum.icefilms.info>"));
 	content = content.match(/href=(.+?)>(.+?)<\/a>/gi);
@@ -600,7 +677,7 @@ plugin.addURI( PREFIX + "icefilms:subcategory:select:(.*)", function(page, link)
 	page.type = "directory";
 	page.contents = "videos";
 	page.metadata.logo = ICEFILMS_IMG;
-	page.metadata.title = link.replace('/\//gi',' ').toUpperCase();
+	page.metadata.title = link.replace(/\W/gi,' ').toUpperCase();
 	var submenu = ['A-Z','Popular', 'Rating', 'Release', 'Added', 'Genres'];
 	var genres = ['Action','Animation', 'Comedy', 'Documentary', 'Drama', 'Family', 'Horror', 'Romance', 'Sci-fi', 'Thriller'];
 	
@@ -634,7 +711,7 @@ plugin.addURI( PREFIX + "icefilms:subcategory:(.*)", function(page, link){
 	page.type = "directory";
 	page.contents = "videos";
 	page.metadata.logo = ICEFILMS_IMG;
-	page.metadata.title = link.replace("/\//gi",' ').toUpperCase();
+	page.metadata.title = link.replace(/\W/gi,' ').toUpperCase();
 	
 	if( link.indexOf('a-z') == -1)
 	    link += '1';
@@ -665,7 +742,7 @@ plugin.addURI( PREFIX + "icefilms:subcategory:(.*)", function(page, link){
 
 plugin.addURI( PREFIX + "icefilms:a-z:(.*)", function(page, link){
 	
-	page.metadata.title = link.replace("/\//gi",' ').toUpperCase();
+	page.metadata.title = link.replace(/\W/gi,' ').toUpperCase();
 	page.type = "directory";
 	page.contents = "videos";
 	page.metadata.logo = ICEFILMS_IMG;
@@ -754,6 +831,31 @@ plugin.addURI( PREFIX + "megarelease:(.*):(.*)", function(page, category, indice
 });
 
 /*
+ * Mega-MKV 
+ */
+
+plugin.addURI( PREFIX + "megamkv:(.*)", function(page, indice){
+	
+	page.type = "directory";
+	page.contents = "items";
+	page.metadata.logo = MEGAMKV_IMG;
+	
+	var content = showtime.httpGet( MEGAMKV + "/page/" + indice + "/").toString();
+	content = getValue(content, '<div id="content">', "<div id='wp_page_numbers'>");
+	content = content.split('<div class="title">');
+	
+	for each (var post in content)
+		if(getValue(post, 'title="', '"') != '')
+			page.appendItem( PREFIX + "videos:" + getValue(post, '<h2><a href="http://', '"')+':ND:ND:ND', "video",
+			 { title: getValue(post, 'title="', '"').replace('Lien Permanent vers', ''),
+			   icon: getValue(post, 'src="', '"') });
+	
+	//Next
+	page.appendItem( PREFIX + "megamkv:" + (parseFloat(indice)+1).toString(), "directory", { title: "Next" });
+	page.loading = false; 
+});
+
+/*
  * OneDDL 
  */
 
@@ -767,7 +869,7 @@ plugin.addURI( PREFIX + "oneddl:(.*):(.*)", function(page, category, indice){
 		category = 'tv-shows';
 
 	if(indice == 1)
-			indice = 2;
+		indice = 2;
 	
 	if(category.indexOf('www')!=-1)
 		var content = showtime.httpGet("http://" + category + "/page/" + indice + "/").toString();	
@@ -846,7 +948,6 @@ plugin.addURI( PREFIX + "vvwtv", function(page, category){
 	
 	page.loading = false; 
 });
-
 
 
 /*
@@ -949,7 +1050,6 @@ function icefilmsGet(link){
 	return data;
 }
 	
-
 /*
  * MegaRelease:
  *  -GetInfo
@@ -995,7 +1095,6 @@ function megareleaseGetUrl(content) {
 	var mu = '';
 	var mu_tmp = '';
 	var title = '';
-	//for each (var link in file){
 	for (var j=0;j<(file.length);j++){
 		if(file[j].indexOf("/?d=") !=-1){
 			mu_tmp += 'www.megaupload.com/' + file[j].match(/\?d=[A-Za-z0-9\s]*</i).toString();
@@ -1061,6 +1160,7 @@ function oneddlGetUrl(content) {
 				host_name ='(RS)';
 			else
 				host_name = '(MULTI)';
+			showtime.trace('host: ' + host.toString());
 			for(var j=0;j<host.length;j++){
 				var temp = getValue(content, host[j], '<strong>');
 				url_tmp = getValue(temp, '<a href="http://','"');
@@ -1084,9 +1184,10 @@ function oneddlGetUrl(content) {
 			}
 		}
 	}
+	if(url.indexOf('>0') !=-1 && url.indexOf('>1') !=-1)
+		url = url.replace(/>0/gi,'>XviD ').replace(/>1/gi,'>x264 ');
 	return url;
 }
-
 
 
 /*
@@ -1223,23 +1324,27 @@ function megauploadGetUrl(link) {
     
 	link = showtime.httpGet('http://'+link,null,args).toString(); 
 
-	if(link.indexOf('users are entitled to dowload files larger than 1GB from Megaupload') !=-1)
+	if(link.indexOf('class="download_l_buy"') !=-1)
 		return 'Premium'; 
-	if(link.indexOf('id="downloadlink">') ==-1)
+	if(link.indexOf('id="dlbuttondisabled') ==-1)
 		return 'Megaupload link Not Available';
 
-	link = link.slice(link.indexOf('http://',link.indexOf('id="downloadlink">'))+7,link.indexOf('"',link.indexOf('http://',link.indexOf('id="downloadlink">'))));	
+	link = link.slice(link.indexOf('http://',link.indexOf('id="dlbuttondisabled'))+7,link.indexOf('"',link.indexOf('http://',link.indexOf('id="dlbuttondisabled'))));	
 	return link;
 }
 
 
-//testing
+//not used
 function megavideoGetUrl(link){
+	/*
+	 * translate d= megavideo check http://videourls.com/
+	 */
 	
 	
 	if(link.indexOf('&v=')!=-1){
 		link = link.slice(link.indexOf('&v=') + 3, link.toString().length);
 	}else{
+	    showtime.trace(link+'\nblack magic: http://videourls.com/'+link.replace('megavideo.com/',''));
 	    link = showtime.httpGet('http://videourls.com/'+link.slice(url.lastIndexOf('/')+1)).toString();
         //print(link);
   	    //link.replace('flashvars.v','').replace('flashvars.v','');
@@ -1255,7 +1360,6 @@ function megavideoGetUrl(link){
     var k1 = getValue(link, 'k1= "', '"');
     var k2 = getValue(link, 'k2= "', '"'); 
     var un = getValue(link, 'un= "', '"'); 
-    showtime.trace(link.indexOf('flashvars.title = "'));
     var title = getValue(link, 'flashvars.title = "', '"'); 
     showtime.print("http://www" + s + ".megavideo.com/files/" + megavideoDecrypt(un, k1, k2) + "/" + title + ".flv");
     return "http://www" + s + ".megavideo.com/files/" + megavideoDecrypt(un, k1, k2) + "/" + title + ".flv";
@@ -1494,31 +1598,53 @@ function r2s(t) {
  */ 
 
 //BookMarks
-function bookmark(title, imdb, url){
-	
-	if(bookmarked(id))
-		return;
-		
-	bookmarks.movies = bookmarks.movies + id + "\t" + title + "\n";
+
+function mark(url,  imdb, title, icon){
+	this.url = url;
+	this.imdb = imdb;
+	this.title = title;
+	this.icon = icon;
 }
 
-function bookmark_remove(id, title){
-	
-	if(!bookmarked(id, title))
-		return;
-	
-	bookmarks.movies = bookmarks.movies.replace(id +"\t"+title+"\n", '');
+function bookmark(url,  imdb, title, icon){
+
+	var temp = eval( '('+ bookmarks.list +')');
+	temp.push(new mark(url,  imdb, title, icon));
+	bookmarks.list = showtime.JSONEncode(temp);
 }
-function bookmarked(id, title){
+
+function bookmark_remove(title){
 	
-	if(bookmarks.movies && bookmarks.movies.indexOf(id) !=-1)
+	var start = bookmarks.list.lastIndexOf('{',bookmarks.list.indexOf(title));
+	var offSet = 1;
+	if(start<2)
+		offSet=0;
+	//bookmarks.list = bookmarks.list.slice(0,start-offSet) + bookmarks.list.slice(bookmarks.list.indexOf('}',bookmarks.list.indexOf(title))+1,bookmarks.list.length);
+	bookmarks.list = bookmarks.list.slice(0,start-offSet) + bookmarks.list.slice(bookmarks.list.indexOf('}',bookmarks.list.indexOf(title))+2-offSet,bookmarks.list.length);
+	if(bookmarks.list.indexOf(']') ==-1)
+		bookmarks.list= '[]';
+}
+function bookmarked(title){
+	
+	if(bookmarks.list.indexOf(title) !=-1)
 		return true;
 	else
 		return false; 
 
 }
 
-
+function bookmark_title(title, url){
+	//unique ID
+	if(title == null || title == 'ND'){
+		if(url.indexOf('episode7') != -1){
+			title = url.replace('episode7.com/shows/','').replace('/',' ').replace(/_/gi,' ');
+		}else{
+			title = url.slice(0, url.length-1);
+			title = title.slice(title.lastIndexOf('/')+1, title.length).replace(/-/gi,' ').replace(/_/gi,' ');
+		}
+	}
+	return title;
+}
 
 
 function getCookie(headers){
@@ -1575,8 +1701,8 @@ function login_megaupload(user, password){
 		password: password
 	}).toString();
 
-	if(aux.indexOf('flashvars.username = "') != -1){    
-		showtime.trace('Logged in to MegaUpload as user: ' + getValue(aux, 'flashvars.username = "', ';', 'start',0 , -1));
+	if(aux.indexOf('Welcome <a href="?c=account" class="member">') != -1){    
+		showtime.trace('Logged in to MegaUpload as user: ' + getValue(aux, 'Welcome <a href="?c=account" class="member">', '<', 'start',0 , -1));
 		mu_login.user = s2r(user);
 		mu_login.pass = s2r(password);
 		loggedIn = true;
@@ -1627,7 +1753,7 @@ function retriveTrailers(clips){
 	if(url == '' && count [1] == count[4])
 		url = filterTrailers(clips, count[4], quality[1].toString().replace('/','"').replace('/gi',''));
 	
-	//SD FIX 
+	//SD FIX + Excepcoes
 	if(url == '' && count [0] > 0)
 		url = filterTrailers(clips, 0, quality[0].toString().replace('/','').replace('/gi','').replace('\\',''));
 		
