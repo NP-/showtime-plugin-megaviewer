@@ -4,6 +4,15 @@
  *  Copyright (C) 2011 NP
  * 
  *  ChangeLog:
+ *  
+ *  0.22
+ *  Added Support for 2Shared
+ *  Added MegaVideo time limit bypass
+ *  Added Auto Login option for MegaUpload
+ *  Clean up Settings page
+ *  Megaupload to MegaVideo Support 
+ *  MegaUpload Account page update
+ *  
  *  0.21
  *  Fix for megaupload support
  *  Fix button name in oneddl
@@ -57,10 +66,13 @@
 
 
 var PREFIX = 'megaviewer:';
+var MEGAEXCLUE = 'http://www.mega-exclue.com/';
+var MEGAEXCLUE_IMG = 'http://i41.tinypic.com/xlz2gx.png';
 var MEGAMKV_IMG = 'http://mega-mkv.com/wp-content/themes/Mega-mkv/logo.png';
 var MEGAMKV = 'http://mega-mkv.com/';
 var MEGARELEASE = "http://www.megarelease.net";
 var MEGARELEASE_IMG = "http://b.imagehost.org/0380/mrlogo1b.png";
+var MEGAUPLOAD_IMG = 'http://1.bp.blogspot.com/-V6zHQzhKnkk/TiyXYyYMYMI/AAAAAAAACb4/1wTuh_h2vDw/s1600/Megaupload+Premium+Link+Generator.png';
 var ONEDDL_IMG = "http://userlogos.org/files/logos/Deva/oneddl_logo.png";
 var ICEFILMS ="http://www.icefilms.info";
 var ICEFILMS_IMG ="http://i1224.photobucket.com/albums/ee364/froggermonster1/icon-1.png";
@@ -130,26 +142,34 @@ var tos = 'MegaViewer\n\n'+
 	
 	settings.createInfo("info", LOGO_IMG, tos + "\nPlugin developed by NP \n");
 	
+	settings.createBool("tosaccepted", "Accepted TOS (available in opening the plugin):", false, function(v){
+	    service.tosaccepted = v; });  
+
+	settings.createDivider('Information');
 	settings.createBool("imdb", "IMDb", false, function(v){ service.imdb = v; });
 	
 	settings.createBool("tmdb", "TMDb", false, function(v){ service.tmdb = v; });
 	
 	settings.createBool("tvrage", "TVRage", false, function(v){ service.tvrage = v; });
+	settings.createDivider('MegaUpload');
 	
+	settings.createBool("megavideo", "Convert MegaUpload links to MegaVideo", false, function(v){ service.megavideo = v; });
+	
+	settings.createBool("timelimit", "Bypass MegaVideo 72 minutes time limit ", false, function(v){ service.timelimit = v; });
+
+	settings.createBool("megaupload", "MegaUpload Auto Login", false, function(v){ service.megaupload = v; });
+	
+	settings.createDivider('Trailers');
+	settings.createBool("trailers", "Search for Trailers (can cause some delay)", false, function(v){ service.trailers = v; });
+
 	settings.createBool("hd", "HD", false, function(v){ service.hd = v; });
 	
 	settings.createBool("fullhd", "Full HD", false, function(v){ service.fullhd = v; });
 
-	settings.createBool("trailers", "Search for Trailers (can cause some delay)", false, function(v){ service.trailers = v; });
-	
-	settings.createBool("tosaccepted", "Accepted TOS (available in opening the plugin):", false, function(v){
-	    service.tosaccepted = v;
-	  });  
-
-//http header fix
-plugin.addHTTPAuth("http:\/\/trailers\.apple\.com\/.*", function(authreq) {
-    authreq.setHeader("User-Agent", "QuickTime");
-  });
+	//http header fix
+	plugin.addHTTPAuth("http:\/\/trailers\.apple\.com\/.*", function(authreq) {
+	    authreq.setHeader("User-Agent", "QuickTime");
+	  });
 
 
 /*
@@ -169,6 +189,11 @@ function startPage(page){
 		      icon: ICEFILMS_IMG
 		      });
 	
+	page.appendItem( PREFIX + "megaexclue", "directory", {
+		  title: "Mega Exclue",
+		      icon: MEGAEXCLUE_IMG
+		      });
+
 	page.appendItem( PREFIX + "megamkv:1", "directory", {
 		  title: "Mega MKV",
 		      icon: MEGAMKV_IMG
@@ -191,13 +216,14 @@ function startPage(page){
 
 	page.appendItem( PREFIX + "login", "directory", {
 		  title: "Login",
-		      icon: 'http://1.bp.blogspot.com/-V6zHQzhKnkk/TiyXYyYMYMI/AAAAAAAACb4/1wTuh_h2vDw/s1600/Megaupload+Premium+Link+Generator.png'
+		      icon: MEGAUPLOAD_IMG
 		      });
 
 	page.appendItem( PREFIX + "videos:input:ND:ND:ND", "directory", {
 		  title: "Insert Link",
 		      icon: INPUT_IMG
 		      });
+	
 		      
 	if(bookmarks.list.length>5)
 		page.appendItem( PREFIX + "bookmarks", "directory", {
@@ -205,6 +231,10 @@ function startPage(page){
 			      icon: BOOKMARKS_IMG
 			      });
 		
+	//auto login
+	if(mu_login.user && service.megaupload == '1')
+		showtime.trace(login_megaupload(r2s(mu_login.user), r2s(mu_login.pass)));	
+	
 	page.type = "directory";
 	page.contents = "items";
 	page.loading = false;
@@ -438,10 +468,8 @@ plugin.addURI( PREFIX + "videos:(.*):(.*):(.*):(.*)", function(page, url, cookie
 	
 	if(url == 'input')
 		url = showtime.textDialog('Link: ', true, false).input.toString().replace('http://','');
-	showtime.trace('Video url: '+ url);
 	//icefilms
 	if(url.length<7 && cookie != 'ND'){
-		showtime.trace('ice: ' + url);
 		var m ='-' + randomFromTo(100,250);
 		var s = randomFromTo(5,250);
 		var rpost={
@@ -458,14 +486,20 @@ plugin.addURI( PREFIX + "videos:(.*):(.*):(.*):(.*)", function(page, url, cookie
 		url = req.slice(req.indexOf('http://')+7, req.length);				
 	}
 	
+	if(url.indexOf('mega-exclue') !=-1)	
+		url = megaexclueGetUrl(url);
+	
 	if(url.indexOf('www')!=-1)
 		var website = url.slice(url.indexOf("www.")+4, url.indexOf(".",url.indexOf("www.")+6));
 	else
 		var website = url.slice(0, url.indexOf("."));
-	
 		
 	switch(website){
 		
+		case '2shared':
+			var temp = showtime.httpGet('http://'+url).toString();
+			url = getValue(temp, 'http://dc',"<",'start','all').replace('http://','');
+			break;
 		case 'mega-mkv':
 			var temp = showtime.httpGet('http://'+url).toString();
 			url = getValue(temp, 'www.megaupload.com','"','start','all');
@@ -479,6 +513,18 @@ plugin.addURI( PREFIX + "videos:(.*):(.*):(.*):(.*)", function(page, url, cookie
 			break;
 		
 		case 'megaupload':
+			if(service.megavideo == "1"){
+				var org_url = url;
+				url = megavideoGetUrl(url);
+				if(service.timelimit == "1"){
+					url = 'www.i-megastreaming.com/megavideo.php?id=' + url.id;
+					break;
+				}
+				if(url.url.indexOf('/.flv')==-1)
+					break;
+				else
+					url = org_url;
+			}
 			if(!loggedIn){
 				var temp_url = megauploadGetUrl(url);
 				if(temp_url.indexOf('megaupload.com') != -1){
@@ -522,7 +568,6 @@ plugin.addURI( PREFIX + "videos:(.*):(.*):(.*):(.*)", function(page, url, cookie
 			showtime.trace('Default: ' + website);
 			break;
 	}
-		
 	var title = 'test';
 	
 	//play
@@ -531,7 +576,7 @@ plugin.addURI( PREFIX + "videos:(.*):(.*):(.*):(.*)", function(page, url, cookie
 	else
 		title = url.slice(url.lastIndexOf('/')+1, url.lastIndexOf('.'));
 
-	if(!loggedIn &&!fileSupport(url.slice(url.lastIndexOf('.'), url.length))){
+	if(!loggedIn && !fileSupport(url.slice(url.lastIndexOf('.'), url.length)) && url.indexOf('php?id=') == -1){
 		page.error("File type not supported.");
 		return;
 	}
@@ -784,6 +829,53 @@ plugin.addURI( PREFIX + "icefilms:list:(.*)", function(page, link){
 	page.loading = false; 
 });
 
+
+/*
+ * Mega Exclue
+ */
+plugin.addURI( PREFIX + "megaexclue", function(page, category){
+	
+	page.type = "directory";
+	page.contents = "items";
+	page.metadata.logo = MEGAEXCLUE_IMG;
+	page.metadata.title = 'Mega Exclue';
+	
+	page.appendItem( PREFIX + "megaexclue:films/page/1", "directory", { title: 'Movies' });
+	page.appendItem( PREFIX + "megaexclue:serietv/page/1", "directory", { title: 'Manga' });
+	page.appendItem( PREFIX + "megaexclue:manga/page/1", "directory", { title: 'TV Shows' });
+
+
+	page.loading = false; 
+});
+
+plugin.addURI( PREFIX + "megaexclue:(.*)", function(page, category){
+	
+	page.type = "directory";
+	page.contents = "items";
+	page.metadata.logo = MEGAEXCLUE_IMG;
+	page.metadata.title = category.replace(/\W/gi,' ').replace('page','').toUpperCase();
+	
+	var content = showtime.httpGet( MEGAEXCLUE + category).toString();
+	if(content.indexOf('Suivant >'))
+		var next = getValue(content, '"', '">Suivant', 'endRef').replace('http://www.mega-exclue.com/','');
+	content = getValue(content, "<h1>", '<div class="cblock">');
+	content = content.split('<h1>');
+	
+	for each (var post in content)
+		page.appendItem( PREFIX + "videos:" + getValue(post, '<a href="http://','"') +':ND:ND:ND', "video",
+			 { title: getValue(post, '">','<'),
+			   icon: getValue(post.slice(post.indexOf('--><'),post.length), '<img src="','"') });
+	
+		
+	//Next
+	if(next)
+		page.appendItem( PREFIX + "megaexclue:" + next, "directory", { title: "Next" });
+	
+	page.loading = false; 
+});
+
+
+
 /*
  * MegaRelease
  */
@@ -975,21 +1067,15 @@ function episodeSevenGetInfo(content){
 function episodeSevenGetUrl(content){
 	var url='';
 	content = content.slice('<div id="wnd">');
-//MEGAVIDEO	
-//	if(content.indexOf('http://www.megavideo.com/?')!=-1)
-//	    url += content.slice(content.indexOf('megavideo.com/'),content.indexOf('";',content.indexOf('www.megavideo.com/'))-1)
-//		    + '<b>MV(flv)</b>';
 	content = content.split('href="http://');
 	
 	for each (var link in content){
 		
 		if(link.indexOf('megaupload.com/?')!=-1)
 			url += getValue(link, 'megaupload.com/?d', '">','start','all')+ '<b>MU</b>';
-			//link.slice(link.indexOf('megaupload.com/?d'), link.indexOf('">',link.indexOf('megaupload.com/?d'))) + '<b>MU</b>';
 		
 		if(link.indexOf('rapidshare.com/')!=-1)
 			url += getValue(link, 'rapidshare.com/', '">','start', 'all') + '<b>RS</b>';
-			//link.slice(link.indexOf('rapidshare.com/'), link.indexOf('">',link.indexOf('rapidshare.com/'))) + '<b>RS</b>';
 	}
 	return url;
 }
@@ -1048,6 +1134,25 @@ function icefilmsGet(link){
 	
 	data.cookie = cookie;
 	return data;
+}
+
+
+/*
+ * Mega exclue:
+ *  -GetURL
+ */
+
+function megaexclueGetUrl(url){
+	var temp = showtime.httpGet('http://'+url).toString();
+	temp = temp.slice(0, temp.indexOf('.bleu {color: #3BB9FF;}'));
+	url = getValue(temp, 'http://', '" target=', 'endRef');
+	if(url.indexOf('evive')!=-1){
+		url = url.replace(/revivelink.com\//i,'');
+		var temp = showtime.httpGet('http://revivelink.com/liens.php?R='+url).toString();
+		temp = temp.replace('com?', 'com/?');
+		url = 'www.megaupload.com/?' + getValue(temp, 'www.megaupload.com/?', "'");
+	}
+	return url;
 }
 	
 /*
@@ -1336,33 +1441,26 @@ function megauploadGetUrl(link) {
 
 //not used
 function megavideoGetUrl(link){
-	/*
-	 * translate d= megavideo check http://videourls.com/
-	 */
-	
-	
-	if(link.indexOf('&v=')!=-1){
-		link = link.slice(link.indexOf('&v=') + 3, link.toString().length);
+	var response = {};
+	if(link.indexOf('v=')!=-1){
+		link = link.slice(link.indexOf('v=') + 2, link.toString().length);
 	}else{
-	    showtime.trace(link+'\nblack magic: http://videourls.com/'+link.replace('megavideo.com/',''));
-	    link = showtime.httpGet('http://videourls.com/'+link.slice(url.lastIndexOf('/')+1)).toString();
-        //print(link);
-  	    //link.replace('flashvars.v','').replace('flashvars.v','');
-	    //showtime.trace('Index: '+ link.indexOf('UGXGNF12'));//link.slice(link.lastIndexOf('flashvars.v'),link.lastIndexOf('flashvars.v')+25));//link.slice(link.lastIndexOf('flashvars.v')+16,link.indexOf(';',link.lastIndexOf('flashvars.v')+18))); 
-	    //link = link.slice(link.indexOf('flashvars.v ="'),link.indexOf('flashvars.v ="')+25);
+		link = showtime.httpGet('http://videourls.com/'+link.slice(link.lastIndexOf('/')+1)).toString();
+		link = getValue(link,'www.megavideo.com/?v=','"');
+		if (link == '')
+			return 'MegaVideo convertion failed...';
 	}
-	showtime.trace('LInk megavideo: ' +link);	
-    link = showtime.httpGet('http://www.megavideo.com/xml/videolink.php?v=' + link, null, 
+	response.id = link;
+	link = showtime.httpGet('http://www.megavideo.com/xml/videolink.php?v=' + link, null, 
         {'Referer' : 'http://www.megavideo.com/',
          'User-Agent' : USER_AGENT }).toString();
-
-    var s = getValue(link, 's= "', '"');
-    var k1 = getValue(link, 'k1= "', '"');
-    var k2 = getValue(link, 'k2= "', '"'); 
-    var un = getValue(link, 'un= "', '"'); 
-    var title = getValue(link, 'flashvars.title = "', '"'); 
-    showtime.print("http://www" + s + ".megavideo.com/files/" + megavideoDecrypt(un, k1, k2) + "/" + title + ".flv");
-    return "http://www" + s + ".megavideo.com/files/" + megavideoDecrypt(un, k1, k2) + "/" + title + ".flv";
+    var s = getValue(link, ' s="', '"');
+    var k1 = getValue(link, ' k1="', '"');
+    var k2 = getValue(link, ' k2="', '"'); 
+    var un = getValue(link, ' un="', '"'); 
+    var title = getValue(link, ' title="', '"');
+    response.url = "www" + s + ".megavideo.com/files/" + megavideoDecrypt(un, k1, k2) + "/" + title + ".flv"; 
+    return response;
 }
 
 function megavideoDecrypt(str, key1, key2) {
@@ -1470,6 +1568,15 @@ function getValue(text, start_string, end_string, start, start_offset , end_offs
 				return text.slice(begin_temp, end_temp);
 			}
 			break;
+			
+		case 'endRef':
+				if (text.indexOf(start_string)!=-1 && 
+					text.indexOf(end_string)!=-1) {
+					var end_temp = text.lastIndexOf(end_string) -1 + end_offset;				
+					var begin_temp = text.lastIndexOf(start_string, end_temp) + start_string.length + start_offset;
+					return text.slice(begin_temp, end_temp +1);
+				}
+				break;
 		
 		default:
 			break;	
@@ -1619,7 +1726,6 @@ function bookmark_remove(title){
 	var offSet = 1;
 	if(start<2)
 		offSet=0;
-	//bookmarks.list = bookmarks.list.slice(0,start-offSet) + bookmarks.list.slice(bookmarks.list.indexOf('}',bookmarks.list.indexOf(title))+1,bookmarks.list.length);
 	bookmarks.list = bookmarks.list.slice(0,start-offSet) + bookmarks.list.slice(bookmarks.list.indexOf('}',bookmarks.list.indexOf(title))+2-offSet,bookmarks.list.length);
 	if(bookmarks.list.indexOf(']') ==-1)
 		bookmarks.list= '[]';
@@ -1660,19 +1766,26 @@ function getCookie(headers){
 }
 
 
-function login(reason){
+function login(reason, user, pass){
 	if(loggedIn)
 		return true;
 	
 	if(mu_login.user){
-		showtime.trace('User name presente');
 		var aux = login_megaupload(r2s(mu_login.user), r2s(mu_login.pass));
-		if(aux == r2s(mu_login.user)){
-			loggedIn = true;
+	
+		if(aux == r2s(mu_login.user))
 			return true;
-		}
+		
 		delete mu_login.user;
 		delete mu_login.pass;		
+	}
+	if(user && pass){
+		var aux = login_megaupload(user, pass);
+
+		if(aux == user)
+			return true;
+		else
+			return 'Username or password not available';
 	}
 
 	if(reason.length < 10)
@@ -1686,7 +1799,7 @@ function login(reason){
 	
 	var aux = login_megaupload(credentials.username, credentials.password);
 		if(aux == credentials.username){
-			loggedIn = true;
+			//loggedIn = true;
 			return true;
 		}
 	return aux;
@@ -1705,7 +1818,9 @@ function login_megaupload(user, password){
 		showtime.trace('Logged in to MegaUpload as user: ' + getValue(aux, 'Welcome <a href="?c=account" class="member">', '<', 'start',0 , -1));
 		mu_login.user = s2r(user);
 		mu_login.pass = s2r(password);
-		loggedIn = true;
+		aux = showtime.httpGet('http://www.megaupload.com/?c=account').toString();
+		if(aux.indexOf('<div class="account_txt">Premium')!=-1)
+			loggedIn = true;
 		return user;
 	}else{ 
 		return 'Username and password do not match. Please try again!';
@@ -1717,12 +1832,53 @@ function login_megaupload(user, password){
 plugin.addURI( PREFIX + "login", function(page, site){   
 	var aux = login('as');
 	
-	if(aux != true)
+	if(aux != true){
 		page.error(aux);
-	else
-		showtime.message('MegaUpload Login Verified', true,false);
+		page.loading = false;
+		return;
+	}
+	page.metadata.title = 'MegaUpload: My Account'; 
+	page.metadata.icon = MEGAUPLOAD_IMG;
+	
+	var content = showtime.httpGet('http://www.megaupload.com/?c=account').toString();
+
+	content = getValue(content, '<div class="bott_p_account"> </div>', 
+		'<div class="account_r_bl">').replace(/&nbsp;&nbsp;/gi,'').replace('<a href="?c=premium" class="acc_extend"></a>','');
+	content = content.split('<div class="account_div"></div>');
+	
+	for each (var info in content)
+		if(info.indexOf('<div class="account_title">')!=-1)
+			page.appendPassiveItem("label", getValue(info,'<div class="account_txt">', '</div>')
+				, {title: getValue(info, '<div class="account_title">', '</div>')});
+
+	var bookmakrButton = page.appendAction("pageevent", "change", true,{ title: "Change User" });
+	var bookmakrButton = page.appendAction("pageevent", "logout", true,{ title: "Logout" });		
+
+
+	page.type = "item";
 	page.loading = false;
-	return;
+	
+	page.onEvent('change', function(){
+							delete mu_login.user;
+							delete mu_login.pass;		
+							aux = login('as');
+							if(aux != true){
+								page.error(aux);
+								page.loading = false;
+								return;
+							}
+					});
+
+	page.onEvent('logout', function(){ 
+							delete mu_login.user;
+							delete mu_login.pass;		
+							aux = login('as','dumb','dumber');
+							if(aux != true){
+								page.error(aux);
+								page.loading = false;
+								return;
+							}
+					});
 });
 
 
